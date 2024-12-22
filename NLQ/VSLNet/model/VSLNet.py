@@ -132,21 +132,32 @@ class VSLNet(nn.Module):
         self.apply(init_weights)
 
     def forward(self, word_ids, char_ids, video_features, v_mask, q_mask):
+        # Elaborazione delle caratteristiche video
         video_features = self.video_affine(video_features)
+        video_features = self.video_feature_encoder(video_features, mask=v_mask)
+        
+        # Elaborazione delle caratteristiche testuali
         if self.configs.predictor == "bert":
             query_features = self.embedding_net(word_ids)
             query_features = self.query_affine(query_features)
         else:
-            query_features = self.embedding_net(word_ids, char_ids)
-
-        query_features = self.feature_encoder(query_features, mask=q_mask)
-        video_features = self.feature_encoder(video_features, mask=v_mask)
+            query_features = self.text_embedding_net(word_ids, char_ids)
+        
+        query_features = self.text_feature_encoder(query_features, mask=q_mask)
+        
+        # Fusione delle caratteristiche video e testuali
         features = self.cq_attention(video_features, query_features, v_mask, q_mask)
         features = self.cq_concat(features, query_features, q_mask)
+        
+        # Layer di highlighting guidato dalla query
         h_score = self.highlight_layer(features, v_mask)
         features = features * h_score.unsqueeze(2)
+        
+        # Predizione degli start e end logits
         start_logits, end_logits = self.predictor(features, mask=v_mask)
+        
         return h_score, start_logits, end_logits
+
 
     def extract_index(self, start_logits, end_logits):
         return self.predictor.extract_index(
