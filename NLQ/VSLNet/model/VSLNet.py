@@ -51,69 +51,69 @@ def build_optimizer_and_scheduler(model, configs):
 
 class VSLNet(nn.Module):
     def __init__(self, configs, word_vectors):
-    super(VSLNet, self).__init__()
-    self.configs = configs
-    
-    # Encoder separati per video e testo
-    self.video_affine = VisualProjection(
-        visual_dim=configs.video_feature_dim,
-        dim=configs.dim,
-        drop_rate=configs.drop_rate,
-    )
-    
-    self.video_feature_encoder = FeatureEncoder(
-        dim=configs.dim,
-        num_heads=configs.num_heads,
-        kernel_size=7,
-        num_layers=4,
-        max_pos_len=configs.max_pos_len,
-        drop_rate=configs.drop_rate,
-    )
-    
-    self.text_feature_encoder = FeatureEncoder(
-        dim=configs.dim,
-        num_heads=configs.num_heads,
-        kernel_size=7,
-        num_layers=4,
-        max_pos_len=configs.max_pos_len,
-        drop_rate=configs.drop_rate,
-    )
-    
-    # video and query fusion
-    self.cq_attention = CQAttention(dim=configs.dim, drop_rate=configs.drop_rate)
-    self.cq_concat = CQConcatenate(dim=configs.dim)
-    
-    # query-guided highlighting
-    self.highlight_layer = HighLightLayer(dim=configs.dim)
-    
-    # conditioned predictor
-    self.predictor = ConditionedPredictor(
-        dim=configs.dim,
-        num_heads=configs.num_heads,
-        drop_rate=configs.drop_rate,
-        max_pos_len=configs.max_pos_len,
-        predictor=configs.predictor,
-    )
-
-    # If pretrained transformer, initialize_parameters and load.
-    if configs.predictor == "bert":
-        # Project back from BERT to dim.
-        self.query_affine = nn.Linear(768, configs.dim)
-        # Initialize parameters
-        self.init_parameters()
-        self.embedding_net = BertEmbedding(configs.text_agnostic)
-    else:
-        self.text_embedding_net = Embedding(
-            num_words=configs.word_size,
-            num_chars=configs.char_size,
-            out_dim=configs.dim,
-            word_dim=configs.word_dim,
-            char_dim=configs.char_dim,
-            word_vectors=word_vectors,
+        super(VSLNet, self).__init__()
+        self.configs = configs
+        
+        # Encoder separati per video e testo
+        self.video_affine = VisualProjection(
+            visual_dim=configs.video_feature_dim,
+            dim=configs.dim,
             drop_rate=configs.drop_rate,
         )
-        # Initialize parameters
-        self.init_parameters()
+        
+        self.video_feature_encoder = FeatureEncoder(
+            dim=configs.dim,
+            num_heads=configs.num_heads,
+            kernel_size=7,
+            num_layers=4,
+            max_pos_len=configs.max_pos_len,
+            drop_rate=configs.drop_rate,
+        )
+        
+        self.text_feature_encoder = FeatureEncoder(
+            dim=configs.dim,
+            num_heads=configs.num_heads,
+            kernel_size=7,
+            num_layers=4,
+            max_pos_len=configs.max_pos_len,
+            drop_rate=configs.drop_rate,
+        )
+        
+        # video and query fusion
+        self.cq_attention = CQAttention(dim=configs.dim, drop_rate=configs.drop_rate)
+        self.cq_concat = CQConcatenate(dim=configs.dim)
+        
+        # query-guided highlighting
+        self.highlight_layer = HighLightLayer(dim=configs.dim)
+        
+        # conditioned predictor
+        self.predictor = ConditionedPredictor(
+            dim=configs.dim,
+            num_heads=configs.num_heads,
+            drop_rate=configs.drop_rate,
+            max_pos_len=configs.max_pos_len,
+            predictor=configs.predictor,
+        )
+    
+        # If pretrained transformer, initialize_parameters and load.
+        if configs.predictor == "bert":
+            # Project back from BERT to dim.
+            self.query_affine = nn.Linear(768, configs.dim)
+            # Initialize parameters
+            self.init_parameters()
+            self.embedding_net = BertEmbedding(configs.text_agnostic)
+        else:
+            self.text_embedding_net = Embedding(
+                num_words=configs.word_size,
+                num_chars=configs.char_size,
+                out_dim=configs.dim,
+                word_dim=configs.word_dim,
+                char_dim=configs.char_dim,
+                word_vectors=word_vectors,
+                drop_rate=configs.drop_rate,
+            )
+            # Initialize parameters
+            self.init_parameters()
 
 
     def init_parameters(self):
