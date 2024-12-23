@@ -87,6 +87,7 @@ class Ego4DClip(data.Dataset):
                                         continue
                                     new_anno = {
                                         "video": video_name,
+                                        "clip": clip_uid, 
                                         "clip_se": clip_times, # tart": clip_times[0],
                                         "description": query["query"],
                                         "window": [w_start, w_start + self.window],
@@ -96,16 +97,23 @@ class Ego4DClip(data.Dataset):
                                             query_times[1] - w_start,
                                         ],
                                         'query_uid': anno_uid+'_'+query["query"],
+                                        "query_idx": query_idx,
                                     }
                                     if w_start < clip_duration:
                                         anno_pairs.append(new_anno)
 
                         else:  # for val/test set, we need to process all windows
-                            if split == 'val':
+                            '''if split == 'val':
                                 if self.min_duration > query_duration or query_duration > self.window or (
                                     self.debug and video_count > 1 # only for debug
                                 ):
-                                    break
+                                    break'''
+                            if split == 'val':
+                                print(f"Number of videos in val set: {len(anno_json['videos'])}")
+                                for video in anno_json["videos"]:
+                                    print(f"Video: {video['video_uid']} has {len(video['clips'])} clips")
+                                    for clip in video["clips"]:
+                                        print(f"Clip has {len(clip['annotations'])} annotations")
                             else: # test set does not remove any query
                                 query_loop_count += 1
                                 new_anno = None
@@ -150,6 +158,14 @@ class Ego4DClip(data.Dataset):
         self.bert_model = BertModel.from_pretrained("bert-base-uncased").cuda()
 
     def __getitem__(self, index):
+
+        """CHECK QUERTY_IDX"""
+        annotation = self.annotations[index]
+        query_idx = annotation.get("query_idx", None)
+        if query_idx is None:
+            print(f"Missing query_idx at index {index}")
+
+
         video_id = self.annotations[index]["video"]
         video_duration = self.annotations[index]["clip_duration"]
 
@@ -258,6 +274,14 @@ class Ego4DClip(data.Dataset):
                 torch.save(feature, self.data_dir + "/rnd/{}.pt".format(vid))
 
             features = torch.tensor(feature).float()
+        elif "omnivore_video_swinl_fp16" == config.DATASET.VIS_INPUT_TYPE:
+            feature = torch.load(self.data_dir + "/omnivore_video_swinl_fp16/{}.pt".format(vid))
+            features = torch.tensor(feature).float()
+            fps = 30.0/16 # Omnivore features are extracted from canonical videos of 30FPS with a stride of 16 that means --> 30/16 = 1.875 FPS
+        elif "egoVLP" == config.DATASET.VIS_INPUT_TYPE:
+            feature = torch.load(self.data_dir + "/egovlp_features/{}.pt".format(vid))
+            features = torch.tensor(feature).float()
+            fps = 30.0/16 # egoVLP features are extracted from canonical videos of 30FPS with a stride of 16 that means --> 30/16 = 1.875 FPS
         else:
             raise NotImplementedError()
 

@@ -79,6 +79,12 @@ def reset_config(config, args):
 
 if __name__ == '__main__':
 
+    if torch.cuda.is_available():
+        print(f"Using GPU: {torch.cuda.get_device_name(torch.cuda.current_device())}", flush=True)
+    else:
+        print("Running on CPU", flush=True)
+
+
     args = parse_args()
     reset_config(config, args)
 
@@ -97,7 +103,10 @@ if __name__ == '__main__':
     train_dataset = getattr(datasets, dataset_name)('train')
     if config.TEST.EVAL_TRAIN:
         eval_train_dataset = getattr(datasets, dataset_name)('train')
+
+    print(f"Validation Set Flag: {config.DATASET.NO_VAL}", flush=True)
     if not config.DATASET.NO_VAL:
+        print("Validation set is used for model selection.", flush=True)
         val_dataset = getattr(datasets, dataset_name)('val')
     test_dataset = getattr(datasets, dataset_name)('test')
 
@@ -106,7 +115,7 @@ if __name__ == '__main__':
         model_checkpoint = torch.load(config.MODEL.CHECKPOINT)
         model.load_state_dict(model_checkpoint)
     if torch.cuda.device_count() > 1:
-        print("Using", torch.cuda.device_count(), "GPUs")
+        print("Using", torch.cuda.device_count(), "GPUs", flush=True)
         model = torch.nn.DataParallel(model)
     device = ("cuda" if torch.cuda.is_available() else "cpu" )
     model = model.to(device)
@@ -188,8 +197,10 @@ if __name__ == '__main__':
         state['test_interval'] = int(len(train_dataset)/config.TRAIN.BATCH_SIZE*config.TEST.INTERVAL)
         state['t'] = 1
         model.train()
+        print("Training started...", flush=True)
+        print(f"Total steps per epoch: {len(iterator('train'))}", flush=True)
         if config.VERBOSE:
-            state['progress_bar'] = tqdm(total=state['test_interval'])
+            state['progress_bar'] = tqdm(total=state['test_interval'], desc="Training Progress", leave=True)
 
     def on_forward(state):
         torch.nn.utils.clip_grad_norm_(model.parameters(), 10)
@@ -200,6 +211,7 @@ if __name__ == '__main__':
             state['progress_bar'].update(1)
 
         if state['t'] % state['test_interval'] == 0:
+            print(f"Iteration {state['t']} - Average Training Loss: {state['loss_meter'].avg:.4f}", flush=True)
             model.eval()
             if config.VERBOSE:
                 state['progress_bar'].close()
@@ -238,13 +250,13 @@ if __name__ == '__main__':
             rootfolder2 = os.path.dirname(rootfolder1)
             rootfolder3 = os.path.dirname(rootfolder2)
             if not os.path.exists(rootfolder3):
-                print('Make directory %s ...' % rootfolder3)
+                print('Make directory %s ...' % rootfolder3, flush=True)
                 os.mkdir(rootfolder3)
             if not os.path.exists(rootfolder2):
-                print('Make directory %s ...' % rootfolder2)
+                print('Make directory %s ...' % rootfolder2, flush=True)
                 os.mkdir(rootfolder2)
             if not os.path.exists(rootfolder1):
-                print('Make directory %s ...' % rootfolder1)
+                print('Make directory %s ...' % rootfolder1, flush=True)
                 os.mkdir(rootfolder1)
 
             if torch.cuda.device_count() > 1:
@@ -264,6 +276,7 @@ if __name__ == '__main__':
 
 
     def on_test_start(state):
+        print(f"Starting evaluation on {state['split']} set...", flush=True)
         state['loss_meter'] = AverageMeter()
         state['sorted_segments_list'] = []
         if config.VERBOSE:
@@ -287,9 +300,12 @@ if __name__ == '__main__':
         state['sorted_segments_list'].extend(sorted_segments)
 
     def on_test_end(state):
+        print(f"Evaluation complete for {state['split']} set.", flush=True)
         annotations = state['iterator'].dataset.annotations
         merge = (state['split'] != 'train')
         state['Rank@N,mIoU@M'], state['miou'] = eval.eval_predictions(state['sorted_segments_list'], annotations, verbose=False, merge_window=merge)
+        print(f"Rank@N,mIoU@M: {state['Rank@N,mIoU@M']}", flush=True)
+        print(f"Mean IoU: {state['miou']:.4f}", flush=True)
         if config.VERBOSE:
             state['progress_bar'].close()
 
