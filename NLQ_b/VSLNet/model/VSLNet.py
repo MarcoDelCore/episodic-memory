@@ -53,12 +53,15 @@ class VSLNet(nn.Module):
     def __init__(self, configs, word_vectors):
         super(VSLNet, self).__init__()
         self.configs = configs
+        
+        # Encoder separati per video e testo
         self.video_affine = VisualProjection(
             visual_dim=configs.video_feature_dim,
             dim=configs.dim,
             drop_rate=configs.drop_rate,
         )
-        self.feature_encoder = FeatureEncoder(
+        
+        self.video_feature_encoder = FeatureEncoder(
             dim=configs.dim,
             num_heads=configs.num_heads,
             kernel_size=7,
@@ -66,11 +69,23 @@ class VSLNet(nn.Module):
             max_pos_len=configs.max_pos_len,
             drop_rate=configs.drop_rate,
         )
+        
+        self.text_feature_encoder = FeatureEncoder(
+            dim=configs.dim,
+            num_heads=configs.num_heads,
+            kernel_size=7,
+            num_layers=4,
+            max_pos_len=configs.max_pos_len,
+            drop_rate=configs.drop_rate,
+        )
+        
         # video and query fusion
         self.cq_attention = CQAttention(dim=configs.dim, drop_rate=configs.drop_rate)
         self.cq_concat = CQConcatenate(dim=configs.dim)
+        
         # query-guided highlighting
         self.highlight_layer = HighLightLayer(dim=configs.dim)
+        
         # conditioned predictor
         self.predictor = ConditionedPredictor(
             dim=configs.dim,
@@ -79,16 +94,16 @@ class VSLNet(nn.Module):
             max_pos_len=configs.max_pos_len,
             predictor=configs.predictor,
         )
-
+    
         # If pretrained transformer, initialize_parameters and load.
         if configs.predictor == "bert":
             # Project back from BERT to dim.
             self.query_affine = nn.Linear(768, configs.dim)
-            # init parameters
+            # Initialize parameters
             self.init_parameters()
             self.embedding_net = BertEmbedding(configs.text_agnostic)
         else:
-            self.embedding_net = Embedding(
+            self.text_embedding_net = Embedding(
                 num_words=configs.word_size,
                 num_chars=configs.char_size,
                 out_dim=configs.dim,
@@ -97,8 +112,9 @@ class VSLNet(nn.Module):
                 word_vectors=word_vectors,
                 drop_rate=configs.drop_rate,
             )
-            # init parameters
+            # Initialize parameters
             self.init_parameters()
+
 
     def init_parameters(self):
         def init_weights(m):
@@ -116,21 +132,32 @@ class VSLNet(nn.Module):
         self.apply(init_weights)
 
     def forward(self, word_ids, char_ids, video_features, v_mask, q_mask):
+        # Elaborazione delle caratteristiche video
         video_features = self.video_affine(video_features)
+        video_features = self.video_feature_encoder(video_features, mask=v_mask)
+        
+        # Elaborazione delle caratteristiche testuali
         if self.configs.predictor == "bert":
             query_features = self.embedding_net(word_ids)
             query_features = self.query_affine(query_features)
         else:
-            query_features = self.embedding_net(word_ids, char_ids)
-
-        query_features = self.feature_encoder(query_features, mask=q_mask)
-        video_features = self.feature_encoder(video_features, mask=v_mask)
+            query_features = self.text_embedding_net(word_ids, char_ids)
+        
+        query_features = self.text_feature_encoder(query_features, mask=q_mask)
+        
+        # Fusione delle caratteristiche video e testuali
         features = self.cq_attention(video_features, query_features, v_mask, q_mask)
         features = self.cq_concat(features, query_features, q_mask)
+        
+        # Layer di highlighting guidato dalla query
         h_score = self.highlight_layer(features, v_mask)
         features = features * h_score.unsqueeze(2)
+        
+        # Predizione degli start e end logits
         start_logits, end_logits = self.predictor(features, mask=v_mask)
+        
         return h_score, start_logits, end_logits
+
 
     def extract_index(self, start_logits, end_logits):
         return self.predictor.extract_index(
