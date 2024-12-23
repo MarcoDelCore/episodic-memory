@@ -8,7 +8,7 @@ DATA_DIR: ./data/Ego4D_clip
 
 DATASET:
   NAME: Ego4DClip
-  VIS_INPUT_TYPE: slowfast
+  VIS_INPUT_TYPE: omnivore
   NO_VAL: False
   NUM_SAMPLE_CLIPS: 40
   TARGET_STRIDE: 1
@@ -31,7 +31,7 @@ TRAIN:
   BATCH_SIZE: 32
   LR: 0.00005
   WEIGHT_DECAY: 0.0000
-  MAX_EPOCH: 100
+  MAX_EPOCH: 10
   CONTINUE: False
 
 LOSS:
