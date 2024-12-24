@@ -17,7 +17,7 @@ DATASET:
   WINDOW: 40 # we use 40s window to cut the videos
 
 TEST:
-  BATCH_SIZE: 16
+  BATCH_SIZE: 8
   RECALL: 1,5
   TIOU: 0.3,0.5
   EVAL_TRAIN: True
@@ -28,7 +28,7 @@ CUDNN:
   BENCHMARK: True
 
 TRAIN:
-  BATCH_SIZE: 32
+  BATCH_SIZE: 16
   LR: 0.025
   WEIGHT_DECAY: 0.0000
   MAX_EPOCH: 1
