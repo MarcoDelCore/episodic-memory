@@ -43,8 +43,8 @@ class Ego4DClip(data.Dataset):
         with open(anno_path) as f:
             anno_json = json.load(f)
 
+        TRAIN_SUBSET_SIZE = 8
         anno_pairs = []
-        query_loop_count = 0
         for video_count, anno_video in enumerate(anno_json["videos"]):
             video_name = anno_video['video_uid'] # anno_clip["clip_uid"]
             for anno_clip in anno_video["clips"]:
@@ -65,7 +65,7 @@ class Ego4DClip(data.Dataset):
 
                         if split == "train":  # split to windows
                             if self.min_duration <= query_duration < self.window and (
-                                not self.debug or video_count < 8
+                                not self.debug or video_count < TRAIN_SUBSET_SIZE
                             ):
                                 # find the new start and end time in the window
                                 first_window_start = np.ceil((query_times[0] - self.window) / stride) * stride
@@ -102,45 +102,35 @@ class Ego4DClip(data.Dataset):
                                     if w_start < clip_duration:
                                         anno_pairs.append(new_anno)
 
-                        else:  # for val/test set, we need to process all windows
-                            '''if split == 'val':
-                                if self.min_duration > query_duration or query_duration > self.window or (
-                                    self.debug and video_count > 1 # only for debug
+                        else:  # val and test set
+                            if self.min_duration > query_duration or query_duration >= self.window:
+                                break
+                                
+                            new_anno = None
+                            if int(clip_duration) - self.window + stride <= stride:
+                                print('warning:', int(clip_duration), self.window, stride)
+                            for w_start in range(
+                                0, int(clip_duration) - self.window + stride, stride
+                            ):
+                                new_anno = {
+                                    "video": video_name,
+                                    "clip": clip_uid, # used in evaluation server
+                                    "clip_se": clip_times,
+                                    "description": query["query"],
+                                    "window": [w_start, w_start + self.window],
+                                    "clip_duration": clip_duration,
+                                    "times": [query_times[0], query_times[1]],
+                                    "query_uid": anno_uid+'_'+str(query_idx),
+                                    "query_idx": query_idx,
+                                }
+                                if (
+                                    self.temp is None
+                                    or anno_df["query"].values[i]
+                                    in self.query_template[self.temp]
                                 ):
-                                    break'''
-                            if split == 'val':
-                                print(f"Number of videos in val set: {len(anno_json['videos'])}")
-                                for video in anno_json["videos"]:
-                                    print(f"Video: {video['video_uid']} has {len(video['clips'])} clips")
-                                    for clip in video["clips"]:
-                                        print(f"Clip has {len(clip['annotations'])} annotations")
-                            else: # test set does not remove any query
-                                query_loop_count += 1
-                                new_anno = None
-                                if int(clip_duration) - self.window + stride <= stride:
-                                    print('warning:', int(clip_duration), self.window, stride)
-                                for w_start in range(
-                                    0, int(clip_duration) - self.window + stride, stride
-                                ):
-                                    new_anno = {
-                                        "video": video_name,
-                                        "clip": clip_uid, # used in evaluation server
-                                        "clip_se": clip_times,
-                                        "description": query["query"],
-                                        "window": [w_start, w_start + self.window],
-                                        "clip_duration": clip_duration,
-                                        "times": [query_times[0], query_times[1]],
-                                        "query_uid": anno_uid+'_'+str(query_idx),
-                                        "query_idx": query_idx,
-                                    }
-                                    if (
-                                        self.temp is None
-                                        or anno_df["query"].values[i]
-                                        in self.query_template[self.temp]
-                                    ):
-                                        anno_pairs.append(new_anno)
-                                if new_anno is None:
-                                    print('Warning!')
+                                    anno_pairs.append(new_anno)
+                            if new_anno is None:
+                                print('Warning!')
 
         print(
             " -- collected {} samples for dataset {}".format(
@@ -151,20 +141,12 @@ class Ego4DClip(data.Dataset):
         for anno in anno_pairs:
             all_query_set.add(anno['query_uid'])
         print(" -- number of queries: {}".format(len(all_query_set)))
-        print(" -- query loop count: {}".format(query_loop_count))
         self.annotations = anno_pairs
         self.cache_bert_feature = dict()
         self.tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         self.bert_model = BertModel.from_pretrained("bert-base-uncased").cuda()
 
     def __getitem__(self, index):
-
-        """CHECK QUERTY_IDX"""
-        annotation = self.annotations[index]
-        query_idx = annotation.get("query_idx", None)
-        if query_idx is None:
-            print(f"Missing query_idx at index {index}")
-
 
         video_id = self.annotations[index]["video"]
         video_duration = self.annotations[index]["clip_duration"]
