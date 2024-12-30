@@ -1,3 +1,18 @@
+import torch
+import torch.nn as nn
+from transformers import AdamW, get_linear_schedule_with_warmup
+
+from model.layers import (
+    Embedding,
+    VisualProjection,
+    FeatureEncoder,
+    CQAttention,
+    CQConcatenate,
+    ConditionedPredictor,
+    HighLightLayer,
+    BertEmbedding,
+)
+
 class VSLBase(nn.Module):
     def __init__(self, configs, word_vectors):
         super(VSLBase, self).__init__()
