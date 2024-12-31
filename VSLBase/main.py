@@ -236,7 +236,7 @@ def main(configs, parser):
         parser.set_defaults(**pre_configs)
         configs = parser.parse_args()
         # build model
-        model = VSLBase(
+        model = VSLNet(
             configs=configs, word_vectors=dataset.get("word_vector", None)
         ).to(device)
 

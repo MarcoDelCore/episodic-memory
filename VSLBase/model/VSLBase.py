@@ -1,3 +1,5 @@
+"""VSLNet Baseline for Ego4D Episodic Memory -- Natural Language Queries.
+"""
 import torch
 import torch.nn as nn
 from transformers import AdamW, get_linear_schedule_with_warmup
@@ -12,6 +14,7 @@ from model.layers import (
     HighLightLayer,
     BertEmbedding,
 )
+
 
 def build_optimizer_and_scheduler(model, configs):
     no_decay = [
@@ -45,43 +48,97 @@ def build_optimizer_and_scheduler(model, configs):
     )
     return optimizer, scheduler
 
+
 class VSLBase(nn.Module):
-    def __init__(self, configs, word_vectors):
+    def __init__(self, configs):
         super(VSLBase, self).__init__()
         self.configs = configs
-        self.video_projection = VisualProjection(
+
+        # Video affine transformation
+        self.video_affine = VisualProjection(
             visual_dim=configs.video_feature_dim,
             dim=configs.dim,
             drop_rate=configs.drop_rate,
         )
-        self.embedding_net = Embedding(
-            num_words=configs.word_size,
-            num_chars=configs.char_size,
-            out_dim=configs.dim,
-            word_dim=configs.word_dim,
-            char_dim=configs.char_dim,
-            word_vectors=word_vectors,
+
+        # Feature encoding
+        self.feature_encoder = FeatureEncoder(
+            dim=configs.dim,
+            num_heads=configs.num_heads,
+            kernel_size=7,
+            num_layers=4,
+            max_pos_len=configs.max_pos_len,
             drop_rate=configs.drop_rate,
         )
-        self.attention_block = MultiHeadAttentionBlock(
+
+        # Video and query fusion
+        self.cq_attention = CQAttention(dim=configs.dim, drop_rate=configs.drop_rate)
+        self.cq_concat = CQConcatenate(dim=configs.dim)
+
+        # Query-guided highlighting
+        self.highlight_layer = HighLightLayer(dim=configs.dim)
+
+        # Conditioned predictor
+        self.predictor = ConditionedPredictor(
             dim=configs.dim,
             num_heads=configs.num_heads,
             drop_rate=configs.drop_rate,
+            max_pos_len=configs.max_pos_len,
+            predictor=configs.predictor,
         )
-        self.conv_block = DepthwiseSeparableConvBlock(
-            dim=configs.dim,
-            kernel_size=3,
-            drop_rate=configs.drop_rate,
-        )
-        self.predictor = nn.Linear(configs.dim, 2)
+
+        # Initialize parameters
         self.init_parameters()
 
-    def forward(self, word_ids, char_ids, video_features, v_mask, q_mask):
-        video_features = self.video_projection(video_features)
-        query_features = self.embedding_net(word_ids, char_ids)
-        fused_features = torch.cat([video_features, query_features], dim=1)
-        fused_features = self.attention_block(fused_features, mask=q_mask)
-        fused_features = self.conv_block(fused_features)
-        logits = self.predictor(fused_features)
-        start_logits, end_logits = logits.split(1, dim=1)
-        return start_logits.squeeze(-1), end_logits.squeeze(1)
+    def init_parameters(self):
+        def init_weights(m):
+            if (
+                isinstance(m, nn.Conv2d)
+                or isinstance(m, nn.Conv1d)
+                or isinstance(m, nn.Linear)
+            ):
+                torch.nn.init.xavier_uniform_(m.weight)
+                if m.bias is not None:
+                    torch.nn.init.zeros_(m.bias)
+            elif isinstance(m, nn.LSTM):
+                m.reset_parameters()
+
+        self.apply(init_weights)
+
+    def forward(self, query_features, video_features, v_mask, q_mask):
+        # Process video features
+        video_features = self.video_affine(video_features)
+
+        # Encode features
+        query_features = self.feature_encoder(query_features, mask=q_mask)
+        video_features = self.feature_encoder(video_features, mask=v_mask)
+
+        # Attention and concatenation
+        features = self.cq_attention(video_features, query_features, v_mask, q_mask)
+        features = self.cq_concat(features, query_features, q_mask)
+
+        # Highlighting
+        h_score = self.highlight_layer(features, v_mask)
+        features = features * h_score.unsqueeze(2)
+
+        # Prediction
+        start_logits, end_logits = self.predictor(features, mask=v_mask)
+        return h_score, start_logits, end_logits
+
+    def extract_index(self, start_logits, end_logits):
+        return self.predictor.extract_index(
+            start_logits=start_logits, end_logits=end_logits
+        )
+
+    def compute_highlight_loss(self, scores, labels, mask):
+        return self.highlight_layer.compute_loss(
+            scores=scores, labels=labels, mask=mask
+        )
+
+    def compute_loss(self, start_logits, end_logits, start_labels, end_labels):
+        return self.predictor.compute_cross_entropy_loss(
+            start_logits=start_logits,
+            end_logits=end_logits,
+            start_labels=start_labels,
+            end_labels=end_labels,
+        )
