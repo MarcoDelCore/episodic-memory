@@ -432,33 +432,6 @@ class CQConcatenate(nn.Module):
         return output
 
 
-class HighLightLayer(nn.Module):
-    def __init__(self, dim):
-        super(HighLightLayer, self).__init__()
-        self.conv1d = Conv1D(
-            in_dim=dim, out_dim=1, kernel_size=1, stride=1, padding=0, bias=True
-        )
-
-    def forward(self, x, mask):
-        # compute logits
-        logits = self.conv1d(x)
-        logits = logits.squeeze(2)
-        logits = mask_logits(logits, mask)
-        # compute score
-        scores = nn.Sigmoid()(logits)
-        return scores
-
-    @staticmethod
-    def compute_loss(scores, labels, mask, epsilon=1e-12):
-        labels = labels.type(torch.float32)
-        weights = torch.where(labels == 0.0, labels + 1.0, 2.0 * labels)
-        loss_per_location = nn.BCELoss(reduction="none")(scores, labels)
-        loss_per_location = loss_per_location * weights
-        mask = mask.type(torch.float32)
-        loss = torch.sum(loss_per_location * mask) / (torch.sum(mask) + epsilon)
-        return loss
-
-
 class DynamicRNN(nn.Module):
     def __init__(self, dim):
         super(DynamicRNN, self).__init__()
