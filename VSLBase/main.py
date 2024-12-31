@@ -99,7 +99,7 @@ def main(configs, parser):
         )
         # build model
         model = VSLBase(
-            configs=configs, word_vectors=dataset.get("word_vector", None)
+            configs=configs
         ).to(device)
         optimizer, scheduler = build_optimizer_and_scheduler(model, configs=configs)
         # start training
